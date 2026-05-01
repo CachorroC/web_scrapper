@@ -1,0 +1,5 @@
+pandas
+playwright
+aiohttp
+aiofiles
+openpyxl
