@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "sourceMap": false,
+    "outDir": "./dist",
+    "rootDir": "./",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "ESNext",
+    "jsx": "react",
+    "strict": true,
+    "lib": [
+      "DOM",
+      "WebWorker",
+      "ESNext.Array",
+      "ESNext.AsyncIterable",
+      "ES2022.Object",
+      "esnext",
+      "esnext.String"
+    ],
+    "esModuleInterop": true,
+    "skipLibCheck": true
+
+  },
+  "exclude": [
+    "node_modules",
+  ]
+}
