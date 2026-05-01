@@ -130,25 +130,17 @@ async def expand_all_replies(page):
     print("Expanding replies...")
     try:
         # Get all 'View replies' buttons
-        # Note: YouTube uses different selectors for main and sub-thread replies
+        # Note: Some buttons might be hidden or already clicked
         await page.evaluate("""() => {
-            const selectors = [
-                'ytd-button-renderer#more-replies button',
-                'ytd-button-renderer#more-replies-sub-thread button',
-                '#more-replies button'
-            ];
-            selectors.forEach(sel => {
-                const buttons = document.querySelectorAll(sel);
-                buttons.forEach(btn => {
-                    if (btn.offsetParent !== null && !btn.hasAttribute('clicked')) { 
-                        btn.click();
-                        btn.setAttribute('clicked', 'true');
-                    }
-                });
+            const buttons = document.querySelectorAll('ytd-button-renderer#more-replies button');
+            buttons.forEach(btn => {
+                if (btn.offsetParent !== null) { // if visible
+                    btn.click();
+                }
             });
         }""")
         # Wait for replies to load
-        await page.wait_for_timeout(4000)
+        await page.wait_for_timeout(3000)
     except Exception as e:
         print(f"Warning: Could not expand all replies: {e}")
 
@@ -160,11 +152,11 @@ async def extract_comments(page):
     await expand_all_replies(page)
     
     # We use evaluate to run JS inside the browser. 
+    # This is 100x faster than calling Playwright locators for each field.
     data = await page.evaluate("""() => {
         const parseLikes = (str) => {
             if (!str) return 0;
-            // Clean non-breaking spaces and other artifacts
-            str = str.replace(/[\\u00a0\\s]/g, ' ').toLowerCase().replace(/,/g, '').trim();
+            str = str.toLowerCase().replace(/,/g, '').trim();
             let multiplier = 1;
             if (str.includes('k')) {
                 multiplier = 1000;
@@ -176,6 +168,7 @@ async def extract_comments(page):
                 multiplier = 1000;
                 str = str.replace('mil', '');
             }
+            // Extract numeric part in case of "9.5K likes"
             const match = str.match(/[\\d.]+/);
             if (!match) return 0;
             return Math.floor(parseFloat(match[0]) * multiplier);
@@ -185,30 +178,19 @@ async def extract_comments(page):
         const threads = document.querySelectorAll('ytd-comment-thread-renderer');
         
         threads.forEach(thread => {
-            // Main comment info - YouTube has migrated to ytd-comment-view-model
-            const mainComment = thread.querySelector('ytd-comment-view-model#comment') || 
-                                thread.querySelector('#comment');
+            // Main comment info
+            const mainComment = thread.querySelector('#comment');
             if (!mainComment) return;
 
-            const author = mainComment.querySelector('a#author-text span')?.innerText || 
-                           mainComment.querySelector('#author-text')?.innerText || 'Anonymous';
-            
-            const text = mainComment.querySelector('yt-attributed-string#content-text span')?.innerText || 
-                         mainComment.querySelector('#content-text')?.innerText || '';
-            
-            const time = mainComment.querySelector('span#published-time-text a')?.innerText || 
-                         mainComment.querySelector('yt-formatted-string.published-time-text')?.innerText || 
-                         mainComment.querySelector('.published-time-text')?.innerText || 'Unknown';
-            
-            const likesText = mainComment.querySelector('span#vote-count-middle')?.innerText || 
-                              mainComment.querySelector('#vote-count-middle')?.innerText || '0';
+            const author = mainComment.querySelector('#author-text')?.innerText || 'Anonymous';
+            const text = mainComment.querySelector('#content-text')?.innerText || '';
+            const time = mainComment.querySelector('yt-formatted-string.published-time-text')?.innerText || 'Unknown';
+            const likesText = mainComment.querySelector('#vote-count-middle')?.innerText || '0';
             const likesCount = parseLikes(likesText);
             
-            // Collect replies text - these are also often ytd-comment-view-model now
-            const replyElements = thread.querySelectorAll('#replies ytd-comment-view-model yt-attributed-string#content-text span, #replies #content-text');
-            const replies = Array.from(replyElements)
-                .map(el => el.innerText.trim())
-                .filter(t => t && t !== text.trim()); // Filter out the main comment if it was picked up
+            // Collect replies text
+            const replyElements = thread.querySelectorAll('#replies ytd-comment-renderer #content-text');
+            const replies = Array.from(replyElements).map(el => el.innerText.trim()).filter(t => t);
             
             results.push({
                 "Author": author.trim(),
