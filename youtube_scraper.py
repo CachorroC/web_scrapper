@@ -132,15 +132,16 @@ async def expand_all_replies(page):
         # Get all 'View replies' buttons
         # Note: Some buttons might be hidden or already clicked
         await page.evaluate("""() => {
-            const buttons = document.querySelectorAll('ytd-button-renderer#more-replies button');
+            // Selector for the "View [N] replies" button
+            const buttons = document.querySelectorAll('ytd-comment-replies-renderer #more-replies button, #more-replies button');
             buttons.forEach(btn => {
-                if (btn.offsetParent !== null) { // if visible
+                if (btn.offsetParent !== null && !btn.disabled) { // if visible and not clicked
                     btn.click();
                 }
             });
         }""")
         # Wait for replies to load
-        await page.wait_for_timeout(3000)
+        await page.wait_for_timeout(4000)
     except Exception as e:
         print(f"Warning: Could not expand all replies: {e}")
 
@@ -178,19 +179,38 @@ async def extract_comments(page):
         const threads = document.querySelectorAll('ytd-comment-thread-renderer');
         
         threads.forEach(thread => {
-            // Main comment info
-            const mainComment = thread.querySelector('#comment');
-            if (!mainComment) return;
+            // Main comment info - YouTube uses ytd-comment-view-model now
+            const mainComment = thread.querySelector('ytd-comment-view-model');
+            if (!mainComment) {
+                // Fallback to old structure if view-model is missing
+                const author = thread.querySelector('#author-text')?.innerText || 'Anonymous';
+                const text = thread.querySelector('#content-text')?.innerText || '';
+                const time = thread.querySelector('#published-time-text')?.innerText || 'Unknown';
+                const likesText = thread.querySelector('#vote-count-middle')?.innerText || '0';
+                
+                results.push({
+                    "Author": author.trim(),
+                    "Comment": text.trim(),
+                    "Time": time.trim(),
+                    "Likes": parseLikes(likesText),
+                    "Replies": ""
+                });
+                return;
+            }
 
             const author = mainComment.querySelector('#author-text')?.innerText || 'Anonymous';
             const text = mainComment.querySelector('#content-text')?.innerText || '';
-            const time = mainComment.querySelector('yt-formatted-string.published-time-text')?.innerText || 'Unknown';
+            const time = mainComment.querySelector('#published-time-text')?.innerText || 'Unknown';
             const likesText = mainComment.querySelector('#vote-count-middle')?.innerText || '0';
             const likesCount = parseLikes(likesText);
             
-            // Collect replies text
-            const replyElements = thread.querySelectorAll('#replies ytd-comment-renderer #content-text');
-            const replies = Array.from(replyElements).map(el => el.innerText.trim()).filter(t => t);
+            // Collect replies text from the replies renderer
+            const repliesRenderer = thread.querySelector('ytd-comment-replies-renderer');
+            let replies = [];
+            if (repliesRenderer) {
+                const replyElements = repliesRenderer.querySelectorAll('ytd-comment-view-model #content-text');
+                replies = Array.from(replyElements).map(el => el.innerText.trim()).filter(t => t);
+            }
             
             results.push({
                 "Author": author.trim(),
