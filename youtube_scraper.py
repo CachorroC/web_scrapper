@@ -125,27 +125,79 @@ async def scroll_to_load_comments(page, limit=None):
     print(f"\nFinished scrolling. Total threads: {await page.locator('ytd-comment-thread-renderer').count()}")
     return True
 
+async def expand_all_replies(page):
+    """Click all 'View X replies' buttons to load reply content."""
+    print("Expanding replies...")
+    try:
+        # Get all 'View replies' buttons
+        # Note: Some buttons might be hidden or already clicked
+        await page.evaluate("""() => {
+            const buttons = document.querySelectorAll('ytd-button-renderer#more-replies button');
+            buttons.forEach(btn => {
+                if (btn.offsetParent !== null) { // if visible
+                    btn.click();
+                }
+            });
+        }""")
+        # Wait for replies to load
+        await page.wait_for_timeout(3000)
+    except Exception as e:
+        print(f"Warning: Could not expand all replies: {e}")
+
 async def extract_comments(page):
     """Extract data from loaded comments using fast JavaScript evaluation."""
     print("Extracting data from DOM...")
     
+    # Expand replies first if possible
+    await expand_all_replies(page)
+    
     # We use evaluate to run JS inside the browser. 
     # This is 100x faster than calling Playwright locators for each field.
     data = await page.evaluate("""() => {
+        const parseLikes = (str) => {
+            if (!str) return 0;
+            str = str.toLowerCase().replace(/,/g, '').trim();
+            let multiplier = 1;
+            if (str.includes('k')) {
+                multiplier = 1000;
+                str = str.replace('k', '');
+            } else if (str.includes('m')) {
+                multiplier = 1000000;
+                str = str.replace('m', '');
+            } else if (str.includes('mil')) { // Spanish fallback
+                multiplier = 1000;
+                str = str.replace('mil', '');
+            }
+            // Extract numeric part in case of "9.5K likes"
+            const match = str.match(/[\\d.]+/);
+            if (!match) return 0;
+            return Math.floor(parseFloat(match[0]) * multiplier);
+        };
+
         const results = [];
         const threads = document.querySelectorAll('ytd-comment-thread-renderer');
         
         threads.forEach(thread => {
-            const author = thread.querySelector('#author-text')?.innerText || 'Anonymous';
-            const text = thread.querySelector('#content-text')?.innerText || '';
-            const time = thread.querySelector('yt-formatted-string.published-time-text')?.innerText || 'Unknown';
-            const likes = thread.querySelector('#vote-count-middle')?.innerText || '0';
+            // Main comment info
+            const mainComment = thread.querySelector('#comment');
+            if (!mainComment) return;
+
+            const author = mainComment.querySelector('#author-text')?.innerText || 'Anonymous';
+            const text = mainComment.querySelector('#content-text')?.innerText || '';
+            const time = mainComment.querySelector('yt-formatted-string.published-time-text')?.innerText || 'Unknown';
+            const likesText = mainComment.querySelector('#vote-count-middle')?.innerText || '0';
+            const likesCount = parseLikes(likesText);
+            
+            // Collect replies text
+            const replyElements = thread.querySelectorAll('#replies ytd-comment-renderer #content-text');
+            const replies = Array.from(replyElements).map(el => el.innerText.trim()).filter(t => t);
             
             results.push({
                 "Author": author.trim(),
                 "Comment": text.trim(),
                 "Time": time.trim(),
-                "Likes": likes.trim() || '0'
+                "Likes": likesCount,
+                "Replies": replies.join(', ')
             });
         });
         return results;
