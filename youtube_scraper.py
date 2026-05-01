@@ -164,6 +164,10 @@ async def run_scraper(url, headless=False, limit=None):
         page = await context.new_page()
         await Stealth().apply_stealth_async(page)
         
+        # Ensure URL has protocol
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
+
         print(f"Navigating to {url}...")
         try:
             await page.goto(url, wait_until="load", timeout=60000)
