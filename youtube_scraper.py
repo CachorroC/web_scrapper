@@ -126,23 +126,64 @@ async def scroll_to_load_comments(page, limit=None):
     return True
 
 async def expand_all_replies(page):
-    """Click all 'View X replies' buttons to load reply content."""
+    """Expand reply threads using Playwright's trusted click events.
+
+    CRITICAL: YouTube's Polymer/LitElement checks event.isTrusted.
+      - JS dispatchEvent → isTrusted=false → YouTube silently ignores the click.
+      - Playwright ElementHandle.click() → routes through Chrome DevTools Protocol
+        input simulation → isTrusted=true → YouTube actually processes the click.
+
+    YouTube DOM (2025): visible "View X replies" button is #more-replies-sub-thread.
+    Replies are lazy-rendered, so we do a scroll pass first to hydrate all buttons.
+    """
     print("Expanding replies...")
-    try:
-        # Get all 'View replies' buttons
-        # Note: Some buttons might be hidden or already clicked
-        await page.evaluate("""() => {
-            const buttons = document.querySelectorAll('ytd-button-renderer#more-replies button');
-            buttons.forEach(btn => {
-                if (btn.offsetParent !== null) { // if visible
-                    btn.click();
-                }
-            });
-        }""")
-        # Wait for replies to load
+
+    # Step 1: Slow-scroll all loaded threads to trigger lazy button hydration.
+    print("  Scrolling to hydrate reply buttons...")
+    scroll_height = await page.evaluate("document.documentElement.scrollHeight")
+    pos = 0
+    while pos < scroll_height:
+        await page.evaluate(f"window.scrollTo(0, {pos})")
+        await page.wait_for_timeout(100)
+        pos += 600
+    await page.evaluate("window.scrollTo(0, 0)")
+    await page.wait_for_timeout(1000)
+
+    # Step 2: Click "View X replies" buttons using Playwright's trusted click.
+    # query_selector_all() returns a snapshot of ElementHandle objects so DOM
+    # mutations during clicking don't shift indices.
+    VIEW_BTN = '#more-replies-sub-thread button'
+    buttons = await page.query_selector_all(VIEW_BTN)
+
+    if not buttons:
+        print("  No 'View replies' buttons found — video may have no replies.")
+        return
+
+    print(f"  Found {len(buttons)} 'View replies' button(s). Clicking...")
+    clicked = 0
+    for btn in buttons:
+        try:
+            await btn.click(force=True, timeout=1000)
+            clicked += 1
+        except Exception:
+            pass
+
+    print(f"  Clicked {clicked}/{len(buttons)} buttons. Waiting for replies to load...")
+    await page.wait_for_timeout(4000)
+
+    # Step 3: Click any "Show more replies" continuation buttons that appeared.
+    CONT_BTN = 'ytd-continuation-item-renderer button'
+    cont_buttons = await page.query_selector_all(CONT_BTN)
+    if cont_buttons:
+        print(f"  Found {len(cont_buttons)} 'Show more replies' button(s). Clicking...")
+        for btn in cont_buttons:
+            try:
+                await btn.click(force=True, timeout=1000)
+            except Exception:
+                pass
         await page.wait_for_timeout(3000)
-    except Exception as e:
-        print(f"Warning: Could not expand all replies: {e}")
+
+    print("  Reply expansion complete.")
 
 async def extract_comments(page):
     """Extract data from loaded comments using fast JavaScript evaluation."""
@@ -175,9 +216,16 @@ async def extract_comments(page):
         };
 
         const results = [];
+        // Select ALL ytd-comment-thread-renderer elements, but skip any that are
+        // nested inside a ytd-comment-replies-renderer — YouTube wraps each reply
+        // in its own ytd-comment-thread-renderer, which inflates the count and
+        // causes every row to have an empty Replies column.
         const threads = document.querySelectorAll('ytd-comment-thread-renderer');
         
         threads.forEach(thread => {
+            // Skip reply threads — only process top-level comment threads
+            if (thread.closest('ytd-comment-replies-renderer')) return;
+
             // Main comment info
             const mainComment = thread.querySelector('#comment');
             if (!mainComment) return;
@@ -188,16 +236,33 @@ async def extract_comments(page):
             const likesText = mainComment.querySelector('#vote-count-middle')?.innerText || '0';
             const likesCount = parseLikes(likesText);
             
-            // Collect replies text
-            const replyElements = thread.querySelectorAll('#replies ytd-comment-renderer #content-text');
-            const replies = Array.from(replyElements).map(el => el.innerText.trim()).filter(t => t);
+            // Collect reply texts.
+            // After expansion, YouTube wraps each reply in ytd-comment-thread-renderer
+            // inside ytd-comment-replies-renderer. We get the content-text from each.
+            const repliesContainer = thread.querySelector('ytd-comment-replies-renderer');
+            let replies = [];
+            if (repliesContainer) {
+                const replyThreads = repliesContainer.querySelectorAll('ytd-comment-thread-renderer');
+                if (replyThreads.length > 0) {
+                    // Replies are in their own thread renderers (expanded state)
+                    replies = Array.from(replyThreads)
+                        .map(rt => rt.querySelector('#content-text')?.innerText?.trim() || '')
+                        .filter(t => t);
+                } else {
+                    // Fallback: replies may use ytd-comment-renderer directly
+                    const replyRenderers = repliesContainer.querySelectorAll('ytd-comment-renderer');
+                    replies = Array.from(replyRenderers)
+                        .map(rr => rr.querySelector('#content-text')?.innerText?.trim() || '')
+                        .filter(t => t);
+                }
+            }
             
             results.push({
                 "Author": author.trim(),
                 "Comment": text.trim(),
                 "Time": time.trim(),
                 "Likes": likesCount,
-                "Replies": replies.join(', ')
+                "Replies": replies.join(' | ')
             });
         });
         return results;
