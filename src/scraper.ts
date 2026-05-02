@@ -5,6 +5,7 @@ import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import type { Page } from 'playwright';
 import delay from './utils/delay.js';
+import { writeFile } from 'node:fs/promises';
 
 // Apply stealth plugin
 chromium.use(
@@ -453,11 +454,11 @@ async function extractComments(
   }
 
   let finalData: {
-    Author : string;
-    Comment: string;
-    Time   : string;
-    Likes  : number;
-    Replies: string;
+    author : string;
+    comment: string;
+    time   : string;
+    likes  : number;
+    replies: { comment: string; replies: any[] }[];
   }[] = [];
 
   try {
@@ -533,7 +534,10 @@ async function extractComments(
 
                 if ( contentEl && ( contentEl as HTMLElement ).innerText ) {
                   replies.push(
-                    ( contentEl as HTMLElement ).innerText.trim()
+                    {
+                      comment: ( contentEl as HTMLElement ).innerText.trim(),
+                      replies: []
+                    }
                   );
                 }
               }
@@ -549,7 +553,10 @@ async function extractComments(
 
                 if ( contentEl && ( contentEl as HTMLElement ).innerText ) {
                   replies.push(
-                    ( contentEl as HTMLElement ).innerText.trim()
+                    {
+                      comment: ( contentEl as HTMLElement ).innerText.trim(),
+                      replies: []
+                    }
                   );
                 }
               }
@@ -568,9 +575,7 @@ async function extractComments(
                 ? time.trim()
                 : '',
               LikesText: likesText,
-              Replies  : replies.join(
-                ' | '
-              ),
+              Replies  : replies,
             }
           );
         }
@@ -585,13 +590,13 @@ async function extractComments(
         item
       ) => {
         return {
-          Author : item.Author,
-          Comment: item.Comment,
-          Time   : item.Time,
-          Likes  : parseLikes(
+          author : item.Author,
+          comment: item.Comment,
+          time   : item.Time,
+          likes  : parseLikes(
             item.LikesText
           ),
-          Replies: item.Replies,
+          replies: item.Replies,
         };
       }
     );
@@ -780,22 +785,53 @@ async function runScraper(
   );
 
   if ( commentsData && commentsData.length > 0 ) {
-    const filename = sanitizeFilename(
+    const baseFilename = sanitizeFilename(
       videoTitle
-    ) + '.xlsx';
+    );
+    const excelFilename = baseFilename + '.xlsx';
+    const jsonFilename = baseFilename + '.json';
+
     console.log(
-      `Saving to ${ filename }...`
+      `Saving to ${ excelFilename } and ${ jsonFilename }...`
+    );
+
+    await writeFile(
+      jsonFilename, JSON.stringify(
+        commentsData, null, 2
+      ), 'utf-8'
+    );
+
+    const excelData = commentsData.map(
+      (
+        c
+      ) => {
+        return {
+          Author : c.author,
+          Comment: c.comment,
+          Time   : c.time,
+          Likes  : c.likes,
+          Replies: c.replies.map(
+            (
+              r
+            ) => {
+              return r.comment;
+            }
+          ).join(
+            ' | '
+          ),
+        };
+      }
     );
 
     const worksheet = xlsx.utils.json_to_sheet(
-      commentsData
+      excelData
     );
     const workbook = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(
       workbook, worksheet, 'Comments'
     );
     xlsx.writeFile(
-      workbook, filename
+      workbook, excelFilename
     );
 
     console.log(
