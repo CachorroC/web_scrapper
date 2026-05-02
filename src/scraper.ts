@@ -26,7 +26,7 @@ function sanitizeFilename(
 function parseLikes(
   str: string | null
 ): number {
-  if (!str) {
+  if ( !str ) {
     return 0;
   }
 
@@ -35,23 +35,23 @@ function parseLikes(
   ).trim();
   let multiplier = 1;
 
-  if (str.includes(
+  if ( str.includes(
     'k'
-  )) {
+  ) ) {
     multiplier = 1000;
     str = str.replace(
       'k', ''
     );
-  } else if (str.includes(
+  } else if ( str.includes(
     'm'
-  )) {
+  ) ) {
     multiplier = 1000000;
     str = str.replace(
       'm', ''
     );
-  } else if (str.includes(
+  } else if ( str.includes(
     'mil'
-  )) {
+  ) ) {
     multiplier = 1000;
     str = str.replace(
       'mil', ''
@@ -62,13 +62,13 @@ function parseLikes(
     /[\d.]+/
   );
 
-  if (!match) {
+  if ( !match ) {
     return 0;
   }
 
   return Math.floor(
     parseFloat(
-      match[0]
+      match[ 0 ]
     ) * multiplier
   );
 }
@@ -86,24 +86,24 @@ async function getVideoDetails(
     'yt-formatted-string.ytd-video-primary-info-renderer',
   ];
 
-  for (const selector of titleSelectors) {
+  for ( const selector of titleSelectors ) {
     try {
       const element = page.locator(
         selector
       ).first();
 
-      if (await element.isVisible(
+      if ( await element.isVisible(
         {
           timeout: 5000
         }
-      )) {
+      ) ) {
         const title = await element.innerText();
 
-        if (title.trim()) {
+        if ( title.trim() ) {
           return title.trim();
         }
       }
-    } catch (e) {
+    } catch ( e ) {
       continue;
     }
   }
@@ -127,16 +127,16 @@ async function handleCaptchaOrConsent(
       'button[aria-label="Accept all"]',
     ];
 
-    for (const sel of consentSelectors) {
+    for ( const sel of consentSelectors ) {
       const btn = page.locator(
         sel
       ).first();
 
-      if (await btn.isVisible(
+      if ( await btn.isVisible(
         {
           timeout: 2000
         }
-      )) {
+      ) ) {
         await btn.click();
         console.log(
           'Cookie consent accepted.'
@@ -148,7 +148,7 @@ async function handleCaptchaOrConsent(
         break;
       }
     }
-  } catch (e) {
+  } catch ( e ) {
     // Ignore
   }
 
@@ -163,27 +163,27 @@ async function handleCaptchaOrConsent(
   let captchaDetected = false;
 
   try {
-    for (const selector of botSelectors) {
-      if (await page.locator(
+    for ( const selector of botSelectors ) {
+      if ( await page.locator(
         selector
       ).first().isVisible(
         {
           timeout: 1000
         }
-      )) {
+      ) ) {
         captchaDetected = true;
         console.log(
-          `[!] Detection triggered by: ${selector}`
+          `[!] Detection triggered by: ${ selector }`
         );
 
         break;
       }
     }
-  } catch (e) {
+  } catch ( e ) {
     // Ignore
   }
 
-  if (captchaDetected) {
+  if ( captchaDetected ) {
     console.log(
       '\n[!] CAPTCHA detected or Unusual Traffic detected.'
     );
@@ -225,13 +225,13 @@ async function scrollToLoadComments(
   try {
     await page.waitForSelector(
       'ytd-comment-thread-renderer', {
-      timeout: 15000
-    }
+        timeout: 15000
+      }
     );
     console.log(
       'Comments section reached.'
     );
-  } catch (e) {
+  } catch ( e ) {
     console.log(
       '[!] Error: Could not find comments. Maybe solved the CAPTCHA but didn\'t refresh or scroll?'
     );
@@ -258,7 +258,7 @@ async function scrollToLoadComments(
     'Loading comments (Infinite Scroll)...'
   );
 
-  while (true) {
+  while ( true ) {
     await page.evaluate(
       () => {
         return window.scrollTo(
@@ -280,21 +280,21 @@ async function scrollToLoadComments(
     ).count();
 
     process.stdout.write(
-      `  > Loaded ~${count} comment threads...\r`
+      `  > Loaded ~${ count } comment threads...\r`
     );
 
-    if (limit && count >= limit) {
+    if ( limit && count >= limit ) {
       console.log(
-        `\nLimit reached (${limit}).`
+        `\nLimit reached (${ limit }).`
       );
 
       break;
     }
 
-    if (newHeight === lastHeight) {
+    if ( newHeight === lastHeight ) {
       noChangeCount += 1;
 
-      if (noChangeCount >= 3) {
+      if ( noChangeCount >= 3 ) {
         break;
       }
     } else {
@@ -307,7 +307,7 @@ async function scrollToLoadComments(
     'ytd-comment-thread-renderer'
   ).count();
   console.log(
-    `\nFinished scrolling. Total threads: ${finalCount}`
+    `\nFinished scrolling. Total threads: ${ finalCount }`
   );
 
   return true;
@@ -330,9 +330,9 @@ async function expandAllReplies(
   );
   let pos = 0;
 
-  while (pos < scrollHeight) {
+  while ( pos < scrollHeight ) {
     await page.evaluate(
-      `window.scrollTo(0, ${pos})`
+      `window.scrollTo(0, ${ pos })`
     );
     await delay(
       100
@@ -356,7 +356,7 @@ async function expandAllReplies(
     VIEW_BTN
   );
 
-  if (buttons.length === 0) {
+  if ( buttons.length === 0 ) {
     console.log(
       '  No \'View replies\' buttons found — video may have no replies.'
     );
@@ -365,26 +365,26 @@ async function expandAllReplies(
   }
 
   console.log(
-    `  Found ${buttons.length} 'View replies' button(s). Clicking...`
+    `  Found ${ buttons.length } 'View replies' button(s). Clicking...`
   );
   let clicked = 0;
 
-  for (const btn of buttons) {
+  for ( const btn of buttons ) {
     try {
       await btn.click(
         {
-          force: true,
+          force  : true,
           timeout: 1000
         }
       );
       clicked += 1;
-    } catch (e) {
+    } catch ( e ) {
       // Ignore
     }
   }
 
   console.log(
-    `  Clicked ${clicked}/${buttons.length} buttons. Waiting for replies to load...`
+    `  Clicked ${ clicked }/${ buttons.length } buttons. Waiting for replies to load...`
   );
   await delay(
     4000
@@ -395,20 +395,20 @@ async function expandAllReplies(
     CONT_BTN
   );
 
-  if (contButtons.length > 0) {
+  if ( contButtons.length > 0 ) {
     console.log(
-      `  Found ${contButtons.length} 'Show more replies' button(s). Clicking...`
+      `  Found ${ contButtons.length } 'Show more replies' button(s). Clicking...`
     );
 
-    for (const btn of contButtons) {
+    for ( const btn of contButtons ) {
       try {
         await btn.click(
           {
-            force: true,
+            force  : true,
             timeout: 1000
           }
         );
-      } catch (e) {
+      } catch ( e ) {
         // Ignore
       }
     }
@@ -429,147 +429,162 @@ async function extractComments(
   console.log(
     'Extracting data from DOM...'
   );
-  await expandAllReplies(
-    page
-  );
 
-  // 1. Extract pure text strings from the DOM using a clean loop
-  const rawData = await page.evaluate(
-    () => {
-      const results = [];
-      const threads = document.querySelectorAll(
-        'ytd-comment-thread-renderer'
-      );
+  try {
+    await expandAllReplies(
+      page
+    );
+  } catch ( e ) {
+    console.log(
+      `[!] Error expanding replies: ${ e }. Proceeding with extraction of available comments...`
+    );
+  }
 
-      // Using classic for-loops instead of .forEach/.map to avoid transpiler interference
-      for (let i = 0; i < threads.length; i++) {
-        const thread = threads[i];
+  let finalData: any[] = [];
 
-        if (thread.closest(
-          'ytd-comment-replies-renderer'
-        )) {
-          continue;
-        }
-
-        const mainComment = thread.querySelector(
-          '#comment'
+  try {
+    // 1. Extract pure text strings from the DOM using a clean loop
+    const rawData = await page.evaluate(
+      () => {
+        const results = [];
+        const threads = document.querySelectorAll(
+          'ytd-comment-thread-renderer'
         );
 
-        if (!mainComment) {
-          continue;
-        }
+        // Using classic for-loops instead of .forEach/.map to avoid transpiler interference
+        for ( let i = 0; i < threads.length; i++ ) {
+          const thread = threads[ i ];
 
-        const authorEl = mainComment.querySelector(
-          '#author-text'
-        );
-        const author = authorEl
-          ? (authorEl as HTMLElement).innerText
-          : 'Anonymous';
+          if ( thread.closest(
+            'ytd-comment-replies-renderer'
+          ) ) {
+            continue;
+          }
 
-        const textEl = mainComment.querySelector(
-          '#content-text'
-        );
-        const text = textEl
-          ? (textEl as HTMLElement).innerText
-          : '';
-
-        const timeEl = mainComment.querySelector(
-          'yt-formatted-string.published-time-text'
-        );
-        const time = timeEl
-          ? (timeEl as HTMLElement).innerText
-          : 'Unknown';
-
-        const likesEl = mainComment.querySelector(
-          '#vote-count-middle'
-        );
-        const likesText = likesEl
-          ? (likesEl as HTMLElement).innerText
-          : '0';
-
-        const repliesContainer = thread.querySelector(
-          'ytd-comment-replies-renderer'
-        );
-        const replies = [];
-
-        if (repliesContainer) {
-          const replyThreads = repliesContainer.querySelectorAll(
-            'ytd-comment-thread-renderer'
+          const mainComment = thread.querySelector(
+            '#comment'
           );
 
-          if (replyThreads.length > 0) {
-            for (let j = 0; j < replyThreads.length; j++) {
-              const contentEl = replyThreads[j].querySelector(
-                '#content-text'
-              );
+          if ( !mainComment ) {
+            continue;
+          }
 
-              if (contentEl && (contentEl as HTMLElement).innerText) {
-                replies.push(
-                  (contentEl as HTMLElement).innerText.trim()
-                );
-              }
-            }
-          } else {
-            const replyRenderers = repliesContainer.querySelectorAll(
-              'ytd-comment-renderer'
+          const authorEl = mainComment.querySelector(
+            '#author-text'
+          );
+          const author = authorEl
+            ? ( authorEl as HTMLElement ).innerText
+            : 'Anonymous';
+
+          const textEl = mainComment.querySelector(
+            '#content-text'
+          );
+          const text = textEl
+            ? ( textEl as HTMLElement ).innerText
+            : '';
+
+          const timeEl = mainComment.querySelector(
+            'yt-formatted-string.published-time-text'
+          );
+          const time = timeEl
+            ? ( timeEl as HTMLElement ).innerText
+            : 'Unknown';
+
+          const likesEl = mainComment.querySelector(
+            '#vote-count-middle'
+          );
+          const likesText = likesEl
+            ? ( likesEl as HTMLElement ).innerText
+            : '0';
+
+          const repliesContainer = thread.querySelector(
+            'ytd-comment-replies-renderer'
+          );
+          const replies = [];
+
+          if ( repliesContainer ) {
+            const replyThreads = repliesContainer.querySelectorAll(
+              'ytd-comment-thread-renderer'
             );
 
-            for (let k = 0; k < replyRenderers.length; k++) {
-              const contentEl = replyRenderers[k].querySelector(
-                '#content-text'
+            if ( replyThreads.length > 0 ) {
+              for ( let j = 0; j < replyThreads.length; j++ ) {
+                const contentEl = replyThreads[ j ].querySelector(
+                  '#content-text'
+                );
+
+                if ( contentEl && ( contentEl as HTMLElement ).innerText ) {
+                  replies.push(
+                    ( contentEl as HTMLElement ).innerText.trim()
+                  );
+                }
+              }
+            } else {
+              const replyRenderers = repliesContainer.querySelectorAll(
+                'ytd-comment-renderer'
               );
 
-              if (contentEl && (contentEl as HTMLElement).innerText) {
-                replies.push(
-                  (contentEl as HTMLElement).innerText.trim()
+              for ( let k = 0; k < replyRenderers.length; k++ ) {
+                const contentEl = replyRenderers[ k ].querySelector(
+                  '#content-text'
                 );
+
+                if ( contentEl && ( contentEl as HTMLElement ).innerText ) {
+                  replies.push(
+                    ( contentEl as HTMLElement ).innerText.trim()
+                  );
+                }
               }
             }
           }
+
+          results.push(
+            {
+              Author: author
+                ? author.trim()
+                : '',
+              Comment: text
+                ? text.trim()
+                : '',
+              Time: time
+                ? time.trim()
+                : '',
+              LikesText: likesText,
+              Replies  : replies.join(
+                ' | '
+              ),
+            }
+          );
         }
 
-        results.push(
-          {
-            Author: author
-              ? author.trim()
-              : '',
-            Comment: text
-              ? text.trim()
-              : '',
-            Time: time
-              ? time.trim()
-              : '',
-            LikesText: likesText,
-            Replies: replies.join(
-              ' | '
-            ),
-          }
-        );
+        return results;
       }
+    );
 
-      return results;
-    }
-  );
-
-  // 2. Process the raw strings in the Node environment
-  const finalData = rawData.map(
-    (
-      item
-    ) => {
-      return {
-        Author: item.Author,
-        Comment: item.Comment,
-        Time: item.Time,
-        Likes: parseLikes(
-          item.LikesText
-        ),
-        Replies: item.Replies,
-      };
-    }
-  );
+    // 2. Process the raw strings in the Node environment
+    finalData = rawData.map(
+      (
+        item
+      ) => {
+        return {
+          Author : item.Author,
+          Comment: item.Comment,
+          Time   : item.Time,
+          Likes  : parseLikes(
+            item.LikesText
+          ),
+          Replies: item.Replies,
+        };
+      }
+    );
+  } catch ( e ) {
+    console.log(
+      `[!] Error during DOM evaluation: ${ e }`
+    );
+  }
 
   console.log(
-    `Extraction complete. Processed ${finalData.length} comments.`
+    `Extraction complete. Processed ${ finalData.length } comments.`
   );
 
   return finalData;
@@ -579,52 +594,131 @@ async function runScraper(
   url: string, headless: boolean = false, limit: number | null = null
 ): Promise<void> {
   console.log(
-    `Launching browser (headless=${headless})...`
+    `Launching browser (headless=${ headless })...`
   );
   const userDataDir = '/home/cachorro_cami/.config/google-chrome/Default';
 
   // 1. Pass the viewport details directly into launchPersistentContext
   const context = await chromium.launchPersistentContext(
     userDataDir, {
-    headless,
-    channel: 'chrome',
-    viewport: {
-      width: 1280,
-      height: 720
+      headless,
+      channel : 'chrome',
+      viewport: {
+        width : 1280,
+        height: 720
+      }
     }
-  }
   );
 
   // 2. Grab the default page that opens with launchPersistentContext
   const page = context.pages().length > 0
-    ? context.pages()[0]
+    ? context.pages()[ 0 ]
     : await context.newPage();
 
-  if (!url.startsWith(
+  await context.addInitScript(
+    () => {
+      const originalPushState = history.pushState;
+
+      history.pushState = function (
+        state, unused, url
+      ) {
+        if ( url && !String(
+          url
+        ).includes(
+          'watch?v='
+        ) ) {
+          console.log(
+            'Blocked SPA navigation to:', url
+          );
+
+          return;
+        }
+
+        return originalPushState.apply(
+          this, arguments as any
+        );
+      };
+
+      const originalReplaceState = history.replaceState;
+
+      history.replaceState = function (
+        state, unused, url
+      ) {
+        if ( url && !String(
+          url
+        ).includes(
+          'watch?v='
+        ) ) {
+          console.log(
+            'Blocked SPA replace to:', url
+          );
+
+          return;
+        }
+
+        return originalReplaceState.apply(
+          this, arguments as any
+        );
+      };
+
+      window.addEventListener(
+        'click', (
+          e: Event
+        ) => {
+          const target = e.target as HTMLElement;
+          const link = target.closest(
+            'a'
+          );
+
+          if ( link && link.href ) {
+            try {
+              const urlObj = new URL(
+                link.href, window.location.href
+              );
+
+              if ( !urlObj.pathname.startsWith(
+                '/watch'
+              ) ) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log(
+                  'Blocked click navigation to:', link.href
+                );
+              }
+            } catch ( err ) {
+            // ignore
+            }
+          }
+        }, true
+      );
+    }
+  );
+
+  if ( !url.startsWith(
     'http://'
   ) && !url.startsWith(
     'https://'
-  )) {
+  ) ) {
     url = 'https://' + url;
   }
 
   console.log(
-    `Navigating to ${url}...`
+    `Navigating to ${ url }...`
   );
 
   try {
     await page.goto(
       url, {
-      waitUntil: 'load',
-      timeout: 60000
-    }
+        waitUntil: 'load',
+        timeout  : 60000
+      }
     );
     await delay(
       3000
     );
-  } catch (e) {
+  } catch ( e ) {
     console.log(
-      `Error: ${e}`
+      `Error: ${ e }`
     );
     // Change browser.close() to context.close()
     await context.close();
@@ -640,45 +734,49 @@ async function runScraper(
     page
   );
   console.log(
-    `Video Title: ${videoTitle}`
+    `Video Title: ${ videoTitle }`
   );
 
-  const success = await scrollToLoadComments(
-    page, limit
+  try {
+    await scrollToLoadComments(
+      page, limit
+    );
+  } catch ( e ) {
+    console.log(
+      `[!] Error scrolling: ${ e }. Proceeding with extraction of currently loaded comments...`
+    );
+  }
+
+  const commentsData = await extractComments(
+    page
   );
 
-  if (success) {
-    const commentsData = await extractComments(
-      page
+  if ( commentsData && commentsData.length > 0 ) {
+    const filename = sanitizeFilename(
+      videoTitle
+    ) + '.xlsx';
+    console.log(
+      `Saving to ${ filename }...`
     );
 
-    if (commentsData && commentsData.length > 0) {
-      const filename = sanitizeFilename(
-        videoTitle
-      ) + '.xlsx';
-      console.log(
-        `Saving to ${filename}...`
-      );
+    const worksheet = xlsx.utils.json_to_sheet(
+      commentsData
+    );
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(
+      workbook, worksheet, 'Comments'
+    );
+    xlsx.writeFile(
+      workbook, filename
+    );
 
-      const worksheet = xlsx.utils.json_to_sheet(
-        commentsData
-      );
-      const workbook = xlsx.utils.book_new();
-      xlsx.utils.book_append_sheet(
-        workbook, worksheet, 'Comments'
-      );
-      xlsx.writeFile(
-        workbook, filename
-      );
-
-      console.log(
-        'Done!'
-      );
-    } else {
-      console.log(
-        'No comments found.'
-      );
-    }
+    console.log(
+      'Done!'
+    );
+  } else {
+    console.log(
+      'No comments found.'
+    );
   }
 
   // 3. Change browser.close() to context.close()
@@ -686,7 +784,7 @@ async function runScraper(
 }
 
 // CLI Execution
-if (process.argv.length < 3) {
+if ( process.argv.length < 3 ) {
   console.log(
     'Usage: npx tsx scraper.ts <URL> [LIMIT] [--headless]'
   );
@@ -698,17 +796,17 @@ if (process.argv.length < 3) {
 const args = process.argv.slice(
   2
 );
-const targetUrl = args[0];
+const targetUrl = args[ 0 ];
 
 let limitArg: number | null = null;
 
-if (args[1] && !isNaN(
+if ( args[ 1 ] && !isNaN(
   Number(
-    args[1]
+    args[ 1 ]
   )
-)) {
+) ) {
   limitArg = parseInt(
-    args[1], 10
+    args[ 1 ], 10
   );
 }
 

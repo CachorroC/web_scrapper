@@ -32,7 +32,7 @@ export default defineConfig(
           ...globals.node,
         },
         parserOptions: {
-          projectService : true,
+          project        : true,
           tsconfigRootDir: __dirname,
         },
       },
