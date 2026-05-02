@@ -104,6 +104,10 @@ async function getVideoDetails(
         }
       }
     } catch ( e ) {
+      console.log(
+        'error catched by the try catch block', e
+      );
+
       continue;
     }
   }
@@ -149,7 +153,9 @@ async function handleCaptchaOrConsent(
       }
     }
   } catch ( e ) {
-    // Ignore
+    console.log(
+      'error catched by the try catch block', e
+    );
   }
 
   const botSelectors = [
@@ -180,7 +186,9 @@ async function handleCaptchaOrConsent(
       }
     }
   } catch ( e ) {
-    // Ignore
+    console.log(
+      'error catched by the try catch block', e
+    );
   }
 
   if ( captchaDetected ) {
@@ -233,10 +241,10 @@ async function scrollToLoadComments(
     );
   } catch ( e ) {
     console.log(
-      '[!] Error: Could not find comments. Maybe solved the CAPTCHA but didn\'t refresh or scroll?'
+      '[!] Error: Could not find comments. Maybe solved the CAPTCHA but didn\'t refresh or scroll?', e
     );
     console.log(
-      '[!] Taking a debug screenshot...'
+      '[!] Taking a debug screenshot...', e
     );
     await page.screenshot(
       {
@@ -379,7 +387,9 @@ async function expandAllReplies(
       );
       clicked += 1;
     } catch ( e ) {
-      // Ignore
+      console.log(
+        'error catched by the try catch block', e
+      );
     }
   }
 
@@ -409,7 +419,9 @@ async function expandAllReplies(
           }
         );
       } catch ( e ) {
-        // Ignore
+        console.log(
+          'error catched by the try catch block', e
+        );
       }
     }
 
@@ -425,7 +437,7 @@ async function expandAllReplies(
 
 async function extractComments(
   page: Page
-): Promise<any[]> {
+) {
   console.log(
     'Extracting data from DOM...'
   );
@@ -440,7 +452,13 @@ async function extractComments(
     );
   }
 
-  let finalData: any[] = [];
+  let finalData: {
+    Author : string;
+    Comment: string;
+    Time   : string;
+    Likes  : number;
+    Replies: string;
+  }[] = [];
 
   try {
     // 1. Extract pure text strings from the DOM using a clean loop
@@ -620,8 +638,12 @@ async function runScraper(
       const originalPushState = history.pushState;
 
       history.pushState = function (
-        state, unused, url
+        ...args
       ) {
+        const [
+          ,, url
+        ] = args;
+
         if ( url && !String(
           url
         ).includes(
@@ -634,16 +656,20 @@ async function runScraper(
           return;
         }
 
-        return originalPushState.apply(
-          this, arguments as any
+        originalPushState.apply(
+          this, args
         );
       };
 
       const originalReplaceState = history.replaceState;
 
       history.replaceState = function (
-        state, unused, url
+        ...args
       ) {
+        const [
+          ,, url
+        ] = args;
+
         if ( url && !String(
           url
         ).includes(
@@ -656,8 +682,8 @@ async function runScraper(
           return;
         }
 
-        return originalReplaceState.apply(
-          this, arguments as any
+        originalReplaceState.apply(
+          this, args
         );
       };
 
@@ -686,7 +712,9 @@ async function runScraper(
                 );
               }
             } catch ( err ) {
-            // ignore
+              console.log(
+                'error catched by the try catch block', err
+              );
             }
           }
         }, true
@@ -796,7 +824,9 @@ if ( process.argv.length < 3 ) {
 const args = process.argv.slice(
   2
 );
-const targetUrl = args[ 0 ];
+const [
+  targetUrl
+] = args;
 
 let limitArg: number | null = null;
 
