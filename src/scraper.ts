@@ -246,6 +246,8 @@ async function scrollToLoadComments(
     }
   );
   let noChangeCount = 0;
+  let lastCommentCount = 0;
+  let noCommentChangeCount = 0;
 
   console.log(
     'Loading comments (Infinite Scroll)...'
@@ -282,6 +284,16 @@ async function scrollToLoadComments(
       );
 
       break;
+    }
+
+    if ( count === lastCommentCount ) {
+      noCommentChangeCount += 1;
+      if ( noCommentChangeCount >= 5 ) {
+        break; // Stop if no new comments load after 5 attempts
+      }
+    } else {
+      lastCommentCount = count;
+      noCommentChangeCount = 0;
     }
 
     if ( newHeight === lastHeight ) {
@@ -527,7 +539,7 @@ async function extractComments(
           const repliesContainer = thread.querySelector(
             'ytd-comment-replies-renderer'
           );
-          const replies: CommentNode[] = [];
+          const replies: any[] = [];
 
           if ( repliesContainer ) {
             const replyThreads = repliesContainer.querySelectorAll(
@@ -536,15 +548,22 @@ async function extractComments(
 
             if ( replyThreads.length > 0 ) {
               for ( let j = 0; j < replyThreads.length; j++ ) {
-                const contentEl = replyThreads[ j ].querySelector(
+                const el = replyThreads[ j ];
+                const contentEl = el.querySelector(
                   '#content-text'
                 );
+                const authorEl = el.querySelector('#author-text');
+                const timeEl = el.querySelector('yt-formatted-string.published-time-text');
+                const likesEl = el.querySelector('#vote-count-middle');
 
                 if ( contentEl && ( contentEl as HTMLElement ).innerText ) {
                   replies.push(
                     {
-                      comment: ( contentEl as HTMLElement ).innerText.trim(),
-                      replies: []
+                      Author: authorEl ? (authorEl as HTMLElement).innerText.trim() : 'Anonymous',
+                      Comment: ( contentEl as HTMLElement ).innerText.trim(),
+                      Time: timeEl ? (timeEl as HTMLElement).innerText.trim() : 'Unknown',
+                      LikesText: likesEl ? (likesEl as HTMLElement).innerText.trim() : '0',
+                      Replies: []
                     }
                   );
                 }
@@ -555,15 +574,22 @@ async function extractComments(
               );
 
               for ( let k = 0; k < replyRenderers.length; k++ ) {
-                const contentEl = replyRenderers[ k ].querySelector(
+                const el = replyRenderers[ k ];
+                const contentEl = el.querySelector(
                   '#content-text'
                 );
+                const authorEl = el.querySelector('#author-text');
+                const timeEl = el.querySelector('yt-formatted-string.published-time-text');
+                const likesEl = el.querySelector('#vote-count-middle');
 
                 if ( contentEl && ( contentEl as HTMLElement ).innerText ) {
                   replies.push(
                     {
-                      comment: ( contentEl as HTMLElement ).innerText.trim(),
-                      replies: []
+                      Author: authorEl ? (authorEl as HTMLElement).innerText.trim() : 'Anonymous',
+                      Comment: ( contentEl as HTMLElement ).innerText.trim(),
+                      Time: timeEl ? (timeEl as HTMLElement).innerText.trim() : 'Unknown',
+                      LikesText: likesEl ? (likesEl as HTMLElement).innerText.trim() : '0',
+                      Replies: []
                     }
                   );
                 }
@@ -597,6 +623,50 @@ async function extractComments(
       (
         item
       ) => {
+        // Build nested structure for replies
+        const nestedReplies: CommentNode[] = [];
+        const authorMap = new Map<string, CommentNode>();
+
+        for (const rawReply of item.Replies) {
+          const replyNode: CommentNode = {
+            author : rawReply.Author || 'Anonymous',
+            comment: rawReply.Comment || rawReply.comment || '',
+            time   : rawReply.Time || 'Unknown',
+            likes  : parseLikes(rawReply.LikesText || '0'),
+            replies: []
+          };
+
+          const mentionMatch = replyNode.comment.match(/^@([^\\s,:]+)/);
+          let placed = false;
+
+          if (mentionMatch) {
+            const mentionedUser = mentionMatch[1];
+            let parentNode: CommentNode | undefined;
+            
+            // Convert maps values to array and reverse to find the most recent matching author
+            const authors = Array.from(authorMap.entries()).reverse();
+            for (const [authorName, authorNode] of authors) {
+              const cleanAuthor = authorName.replace(/^@/, '');
+              const cleanMention = mentionedUser.replace(/^@/, '');
+              if (cleanAuthor === cleanMention || cleanAuthor.includes(cleanMention) || cleanMention.includes(cleanAuthor)) {
+                parentNode = authorNode;
+                break;
+              }
+            }
+
+            if (parentNode) {
+              parentNode.replies!.push(replyNode);
+              placed = true;
+            }
+          }
+
+          if (!placed) {
+            nestedReplies.push(replyNode);
+          }
+
+          authorMap.set(replyNode.author, replyNode);
+        }
+
         return {
           author : item.Author,
           comment: item.Comment,
@@ -604,9 +674,7 @@ async function extractComments(
           likes  : parseLikes(
             item.LikesText
           ),
-          replies: [
-            ...item.Replies
-          ],
+          replies: nestedReplies,
         };
       }
     );
@@ -837,18 +905,23 @@ async function runScraper(
       (
         c
       ) => {
+        const flattenReplies = (replies: CommentNode[]): string[] => {
+          let list: string[] = [];
+          for (const r of replies) {
+            list.push(r.comment);
+            if (r.replies && r.replies.length > 0) {
+              list = list.concat(flattenReplies(r.replies));
+            }
+          }
+          return list;
+        };
+
         return {
           Author : c.author,
           Comment: c.comment,
           Time   : c.time,
           Likes  : c.likes,
-          Replies: c.replies.map(
-            (
-              r
-            ) => {
-              return r.comment;
-            }
-          ).join(
+          Replies: flattenReplies(c.replies || []).join(
             ' | '
           ),
         };
