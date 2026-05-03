@@ -5,12 +5,12 @@ import * as xlsx from 'xlsx';
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import type { Page } from 'playwright';
-import delay from './utils/delay.js';
+import delay from '../../utils/delay.js';
 import { writeFile, mkdir } from 'node:fs/promises';
 import * as path from 'node:path';
-import { CommentNode } from './types/yt-comment.js';
-import { parseLikes } from './utils/parse_likes.js';
-import { sanitizeFilename } from './utils/sanitize_filename.js';
+import { CommentNode } from '../../types/yt-comment.js';
+import { parseLikes } from '../../utils/parse_likes.js';
+import { sanitizeFilename } from '../../utils/sanitize_filename.js';
 
 // Apply stealth plugin to avoid basic bot detection
 chromium.use(
@@ -666,7 +666,7 @@ async function extractComments(
           };
 
           const cleanComment = replyNode.comment.replace(
-            /^[\s\u200B-\u200D\uFEFF]+/, '' 
+            /^[\s\u200B-\u200D\uFEFF]+/, ''
           );
           const mentionMatch = cleanComment.match(
             /^@([^\s,:]+)/
@@ -680,28 +680,28 @@ async function extractComments(
             let parentNode: CommentNode | undefined;
 
             const normalizeName = (
-              name: string 
+              name: string
             ) => {
               return name.replace(
-                /[^a-zA-Z0-9]/g, '' 
+                /[^a-zA-Z0-9]/g, ''
               ).toLowerCase();
             };
 
             const cleanMention = normalizeName(
-              mentionedUser 
+              mentionedUser
             );
 
             // Search backwards through previous replies to find the most recent matching author
             for ( let i = previousNodes.length - 1; i >= 0; i-- ) {
               const prevNode = previousNodes[ i ];
               const cleanAuthor = normalizeName(
-                prevNode.author 
+                prevNode.author
               );
 
               if ( cleanAuthor && cleanMention && ( cleanAuthor === cleanMention || cleanAuthor.includes(
-                cleanMention 
+                cleanMention
               ) || cleanMention.includes(
-                cleanAuthor 
+                cleanAuthor
               ) ) ) {
                 parentNode = prevNode;
 
@@ -724,7 +724,7 @@ async function extractComments(
           }
 
           previousNodes.push(
-            replyNode 
+            replyNode
           );
         }
 
