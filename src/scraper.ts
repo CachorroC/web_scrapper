@@ -652,7 +652,7 @@ async function extractComments(
       ) => {
         // Build nested structure for replies
         const nestedReplies: CommentNode[] = [];
-        const authorMap = new Map<string, CommentNode>();
+        const previousNodes: CommentNode[] = [];
 
         for ( const rawReply of item.Replies ) {
           const replyNode: CommentNode = {
@@ -665,7 +665,10 @@ async function extractComments(
             replies: []
           };
 
-          const mentionMatch = replyNode.comment.match(
+          const cleanComment = replyNode.comment.replace(
+            /^[\s\u200B-\u200D\uFEFF]+/, '' 
+          );
+          const mentionMatch = cleanComment.match(
             /^@([^\s,:]+)/
           );
           let placed = false;
@@ -676,28 +679,31 @@ async function extractComments(
             ] = mentionMatch;
             let parentNode: CommentNode | undefined;
 
-            // Convert maps values to array and reverse to find the most recent matching author
-            const authors = Array.from(
-              authorMap.entries()
-            ).reverse();
+            const normalizeName = (
+              name: string 
+            ) => {
+              return name.replace(
+                /[^a-zA-Z0-9]/g, '' 
+              ).toLowerCase();
+            };
 
-            for ( const [
-              authorName,
-              authorNode
-            ] of authors ) {
-              const cleanAuthor = authorName.replace(
-                /^@/, ''
-              );
-              const cleanMention = mentionedUser.replace(
-                /^@/, ''
+            const cleanMention = normalizeName(
+              mentionedUser 
+            );
+
+            // Search backwards through previous replies to find the most recent matching author
+            for ( let i = previousNodes.length - 1; i >= 0; i-- ) {
+              const prevNode = previousNodes[ i ];
+              const cleanAuthor = normalizeName(
+                prevNode.author 
               );
 
-              if ( cleanAuthor === cleanMention || cleanAuthor.includes(
-                cleanMention
+              if ( cleanAuthor && cleanMention && ( cleanAuthor === cleanMention || cleanAuthor.includes(
+                cleanMention 
               ) || cleanMention.includes(
-                cleanAuthor
-              ) ) {
-                parentNode = authorNode;
+                cleanAuthor 
+              ) ) ) {
+                parentNode = prevNode;
 
                 break;
               }
@@ -717,8 +723,8 @@ async function extractComments(
             );
           }
 
-          authorMap.set(
-            replyNode.author, replyNode
+          previousNodes.push(
+            replyNode 
           );
         }
 
