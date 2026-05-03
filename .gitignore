@@ -320,6 +320,9 @@ venv.bak/
 
 logs
 logs/*
+
+etnografia_digital
+etnografia_digital/*
 # Spyder project settings
 .spyderproject
 .spyproject
