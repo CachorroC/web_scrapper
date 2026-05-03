@@ -5,13 +5,12 @@ import * as xlsx from 'xlsx';
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import type { Page } from 'playwright';
-import delay from 'utils/delay.js';
+import delay from '../../utils/delay.js';
 import { writeFile, mkdir } from 'node:fs/promises';
 import * as path from 'node:path';
-import { CommentNode } from 'types/yt-comment.js';
-import { parseLikes } from 'utils/parse_likes.js';
-import { sanitizeFilename } from 'utils/sanitize_filename.js';
-import { userDataDir } from 'assets/user_data_dir.js';
+import { CommentNode } from '../../types/yt-comment.js';
+import { parseLikes } from '../../utils/parse_likes.js';
+import { sanitizeFilename } from '../../utils/sanitize_filename.js';
 
 // Apply stealth plugin to avoid basic bot detection
 chromium.use(
@@ -782,12 +781,17 @@ async function runScraper(
     `Launching browser (headless=${ headless })...`
   );
 
-
   // 1. Pass the viewport details directly into launchPersistentContext
-  const context = await chromium.launchPersistentContext(
-    userDataDir, {
+  const browser = await chromium.launch(
+    {
       headless,
-      channel : 'chrome',
+      channel: 'chrome',
+
+    }
+  );
+
+  const context = await browser.newContext(
+    {
       viewport: {
         width : 1280,
         height: 720
@@ -896,6 +900,18 @@ async function runScraper(
     'https://'
   ) ) {
     url = 'https://' + url;
+  }
+
+  // Convert YouTube Shorts URL to standard watch URL for reliable comment scraping
+  if ( url.includes(
+    '/shorts/'
+  ) ) {
+    console.log(
+      'Converting Shorts URL to standard watch format for scraping...'
+    );
+    url = url.replace(
+      '/shorts/', '/watch?v='
+    );
   }
 
   console.log(
@@ -1049,7 +1065,7 @@ async function runScraper(
 
 if ( process.argv.length < 3 ) {
   console.log(
-    'Usage: npx tsx scraper.ts <URL> [LIMIT] [--headless]'
+    'Usage: npx tsx shorts_scraper.ts <URL> [LIMIT] [--headless]'
   );
   process.exit(
     1

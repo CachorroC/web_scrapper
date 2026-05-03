@@ -5,6 +5,11 @@
     "types": [ "node" ],
     "module": "esnext",
     "moduleResolution": "bundler",
+    "paths": {
+      "utils/*": [ "./src/utils/*" ],
+      "assets/*": [ "./src/utils/assets/*" ],
+      "types/*": ["./src/types/*"]
+    },
     "target": "ESNext",
     "jsx": "react",
     "strict": true,
