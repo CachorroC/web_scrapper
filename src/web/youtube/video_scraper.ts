@@ -1,10 +1,24 @@
+/**
+ * @fileoverview Robust YouTube Comment Scraper using Playwright.
+ *
+ * This script orchestrates a headless/headful browser session to navigate to a YouTube video,
+ * bypass GDPR consents, pause for manual CAPTCHA solving if detected, infinitely scroll to
+ * load all (or a limited number of) comments, expand deeply nested replies, and extract
+ * the resulting data into both JSON and Excel formats.
+ *
+ * Key architectural principles applied:
+ * - Separation of Concerns (SoC): Browser setup, scraping, and file I/O are isolated.
+ * - Single Responsibility Principle (SRP): Each function performs exactly one logical task.
+ * - Modularity: Helper functions process specific data transformations (e.g., flattening replies).
+ */
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { chromium } from 'playwright-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import * as xlsx from 'xlsx';
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
-import type { Page } from 'playwright';
+import type { Page, BrowserContext } from 'playwright';
 import delay from 'utils/delay.js';
 import { writeFile, mkdir } from 'node:fs/promises';
 import * as path from 'node:path';
@@ -13,22 +27,155 @@ import { parseLikes } from 'utils/parse_likes.js';
 import { sanitizeFilename } from 'utils/sanitize_filename.js';
 import { userDataDir } from 'assets/user_data_dir.js';
 
-// Apply stealth plugin to avoid basic bot detection
+// Apply stealth plugin to mask automation signatures and avoid basic bot detection
 chromium.use(
   StealthPlugin()
 );
 
 /**
- * Extracts the primary title of the YouTube video currently loaded in the page.
+ * Initializes the persistent browser context and injects Single Page Application (SPA) blockers.
  *
- * **Logic**:
- * Iterates over a predefined array of common CSS selectors used by YouTube for the video title.
- * For each selector, it checks if the element is visible (with a 5-second timeout).
- * If found, it extracts and returns the inner text. If all selectors fail, it falls
- * back to reading the document `<title>` and stripping the " - YouTube" suffix.
+ * **Logic & Flow:**
+ * 1. Launches a persistent Chrome context to retain session data (cookies, logins) across runs.
+ * 2. Grabs the default open page.
+ * 3. Injects a crucial `addInitScript` before the page loads. This script hijacks the browser's
+ *    `history.pushState` and `history.replaceState` APIs, as well as global click events.
+ *    Because YouTube is a SPA, clicking certain elements can cause the framework to soft-navigate
+ *    away from the video context, breaking the scraper. This script forces the browser to ignore
+ *    any internal navigation that doesn't include `watch?v=`.
  *
- * @param {Page} page - The active Playwright page instance.
- * @returns {Promise<string>} A promise that resolves to the cleaned video title.
+ * @param {boolean} headless - Determines if the browser UI should be visible (false) or hidden (true).
+ * @returns {Promise<{ context: BrowserContext; page: Page }>} The initialized browser context and primary active page.
+ */
+async function setupBrowserContext(
+  headless: boolean
+): Promise<{ context: BrowserContext; page: Page }> {
+  console.log(
+    `Launching browser (headless=${ headless })...`
+  );
+
+  const context = await chromium.launchPersistentContext(
+    userDataDir, {
+      headless,
+      channel : 'chrome',
+      viewport: {
+        width : 1280,
+        height: 720
+      }
+    }
+  );
+
+  const page = context.pages().length > 0
+    ? context.pages()[ 0 ]
+    : await context.newPage();
+
+  // Inject script to prevent YouTube SPA routing from navigating away from the target video
+  await context.addInitScript(
+    () => {
+      const originalPushState = history.pushState;
+
+      history.pushState = function (
+        ...args
+      ) {
+        const [
+          , , url
+        ] = args;
+
+        if ( url && !String(
+          url
+        ).includes(
+          'watch?v='
+        ) ) {
+          console.log(
+            'Blocked SPA navigation to:', url
+          );
+
+          return;
+        }
+
+        originalPushState.apply(
+          this, args
+        );
+      };
+
+      const originalReplaceState = history.replaceState;
+
+      history.replaceState = function (
+        ...args
+      ) {
+        const [
+          , , url
+        ] = args;
+
+        if ( url && !String(
+          url
+        ).includes(
+          'watch?v='
+        ) ) {
+          console.log(
+            'Blocked SPA replace to:', url
+          );
+
+          return;
+        }
+
+        originalReplaceState.apply(
+          this, args
+        );
+      };
+
+      window.addEventListener(
+        'click', (
+          e: Event
+        ) => {
+          const target = e.target as HTMLElement;
+          const link = target.closest(
+            'a'
+          );
+
+          if ( link && link.href ) {
+            try {
+              const urlObj = new URL(
+                link.href, window.location.href
+              );
+
+              if ( !urlObj.pathname.startsWith(
+                '/watch'
+              ) ) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log(
+                  'Blocked click navigation to:', link.href
+                );
+              }
+            } catch ( err ) {
+              console.log(
+                'Error caught by the try/catch block during click interception', err
+              );
+            }
+          }
+        }, true
+      );
+    }
+  );
+
+  return {
+    context,
+    page
+  };
+}
+
+/**
+ * Scrapes the primary title of the currently loaded YouTube video.
+ *
+ * **Logic:**
+ * Iterates through a prioritized array of known CSS selectors that YouTube uses for video titles.
+ * It waits briefly for each to become visible. If a selector succeeds, it extracts and sanitizes
+ * the text. If all targeted selectors fail (due to A/B testing or UI updates), it falls back to
+ * reading the document's `<title>` tag and stripping the universal " - YouTube" suffix.
+ *
+ * @param {Page} page - The active Playwright page instance containing the loaded video.
+ * @returns {Promise<string>} The sanitized video title used later for file naming.
  */
 async function getVideoDetails(
   page: Page
@@ -62,14 +209,14 @@ async function getVideoDetails(
       }
     } catch ( e ) {
       console.log(
-        'error catched by the try catch block', e
+        'Selector timeout or failure, moving to next.', e
       );
 
       continue;
     }
   }
 
-  // Fallback to page title
+  // Ultimate fallback to the HTML head title
   const docTitle = await page.title();
 
   return docTitle.replace(
@@ -78,18 +225,18 @@ async function getVideoDetails(
 }
 
 /**
- * Handles EU/GDPR cookie consent popups and detects bot-verification challenges (CAPTCHA).
+ * Handles automated EU/GDPR cookie consent overlays and monitors for Google bot-detection.
  *
- * **Logic**:
- * 1. Checks for various "Accept all" button text variations across different languages.
- *    If found, clicks it to bypass the consent overlay.
- * 2. Checks for known CAPTCHA or "Unusual traffic" iframe sources and text.
- * 3. If a CAPTCHA is detected, it pauses the script using the Node `readline` module,
- *    prompting the user to manually solve the CAPTCHA in the visible browser window
- *    before pressing ENTER to resume execution.
+ * **Logic & Flow:**
+ * 1. **Consent Bypass:** Scans for localized "Accept all" buttons. If found, clicks to dismiss the overlay.
+ * 2. **Bot Detection Check:** Scans the DOM for specific text nodes or iframes indicating a reCAPTCHA
+ *    or an "Unusual traffic" block.
+ * 3. **Manual Intervention:** If a block is detected, execution halts. It leverages Node's `readline`
+ *    to prompt the user in the terminal. The user must manually solve the CAPTCHA in the visible
+ *    browser window, then press ENTER in the terminal to resume the script.
  *
  * @param {Page} page - The active Playwright page instance.
- * @returns {Promise<void>} Resolves when consent is accepted or CAPTCHA is manually bypassed.
+ * @returns {Promise<void>} Resolves once the page is clear of overlays or manually unblocked.
  */
 async function handleCaptchaOrConsent(
   page: Page
@@ -125,7 +272,7 @@ async function handleCaptchaOrConsent(
     }
   } catch ( e ) {
     console.log(
-      'error catched by the try catch block', e
+      'Error during cookie consent handling', e
     );
   }
 
@@ -158,7 +305,7 @@ async function handleCaptchaOrConsent(
     }
   } catch ( e ) {
     console.log(
-      'error catched by the try catch block', e
+      'Error during CAPTCHA detection phase', e
     );
   }
 
@@ -184,21 +331,19 @@ async function handleCaptchaOrConsent(
 }
 
 /**
- * Triggers YouTube's infinite scrolling behavior to load comment threads into the DOM.
+ * Forces YouTube's lazy-loading engine to fetch all comment threads via infinite scrolling.
  *
- * **Logic**:
- * 1. Does an initial scroll of 800px to trigger the initial loading of the comment section.
- * 2. Waits for the `ytd-comment-thread-renderer` element to appear.
- * 3. Enters an infinite `while(true)` loop:
- *    - Scrolls to the absolute bottom of the document.
- *    - Waits for network/DOM updates.
- *    - Checks the new scroll height against the previous one. If height hasn't changed
- *      for 3 consecutive attempts, it assumes all comments are loaded and breaks the loop.
- *    - Also breaks early if a user-defined `limit` of loaded threads is reached.
+ * **Logic & Flow:**
+ * 1. Performs an initial 800px scroll to trigger the XHR request that loads the comment section container.
+ * 2. Enters an infinite `while` loop, continuously scrolling to the `document.documentElement.scrollHeight`.
+ * 3. Compares the total height and the count of `<ytd-comment-thread-renderer>` nodes before and after scrolling.
+ * 4. **Exit Conditions:**
+ *    - The node count meets or exceeds the user-defined `limit`.
+ *    - The DOM height or node count remains unchanged for several consecutive iterations (indicating the absolute bottom has been reached).
  *
  * @param {Page} page - The active Playwright page instance.
- * @param {number | null} [limit=null] - Maximum number of comment threads to load before stopping.
- * @returns {Promise<boolean>} True if successful, false if the comment section couldn't be found.
+ * @param {number | null} [limit=null] - Optional ceiling for the number of top-level threads to load.
+ * @returns {Promise<boolean>} True if scrolling completed successfully, False if comments failed to load entirely.
  */
 async function scrollToLoadComments(
   page: Page, limit: number | null = null
@@ -230,9 +375,6 @@ async function scrollToLoadComments(
   } catch ( e ) {
     console.log(
       '[!] Error: Could not find comments. Maybe solved the CAPTCHA but didn\'t refresh or scroll?', e
-    );
-    console.log(
-      '[!] Taking a debug screenshot...', e
     );
     await page.screenshot(
       {
@@ -293,7 +435,7 @@ async function scrollToLoadComments(
       noCommentChangeCount += 1;
 
       if ( noCommentChangeCount >= 5 ) {
-        break; // Stop if no new comments load after 5 attempts
+        break;
       }
     } else {
       lastCommentCount = count;
@@ -323,17 +465,17 @@ async function scrollToLoadComments(
 }
 
 /**
- * Finds and clicks all buttons to expand nested replies within comment threads.
+ * Locates and clicks all UI elements required to expand hidden nested replies.
  *
- * **Logic**:
- * 1. Scrolls systematically back through the page to force lazy-loaded "View replies" buttons to render.
- * 2. Queries all `#more-replies-sub-thread button` selectors ("View replies").
- * 3. Iterates and clicks each one to trigger the network request for replies.
- * 4. Waits for the replies to load, then looks for `ytd-continuation-item-renderer button`
- *    ("Show more replies") for heavily nested/paginated reply chains, and clicks those as well.
+ * **Logic & Flow:**
+ * 1. Re-scrolls the page from top to bottom. Because YouTube unmounts off-screen elements
+ *    (virtualized lists) to save memory, this "re-hydrates" the DOM nodes.
+ * 2. Queries all initial "View replies" buttons (`#more-replies-sub-thread button`) and clicks them.
+ * 3. Waits for the network requests to resolve, then searches for subsequent pagination buttons
+ *    ("Show more replies" - `ytd-continuation-item-renderer button`) inside heavily nested threads and clicks them.
  *
  * @param {Page} page - The active Playwright page instance.
- * @returns {Promise<void>} Resolves when all visible reply buttons have been clicked.
+ * @returns {Promise<void>} Resolves when all visible expansion buttons have been processed.
  */
 async function expandAllReplies(
   page: Page
@@ -352,6 +494,7 @@ async function expandAllReplies(
   );
   let pos = 0;
 
+  // Systematic slow scroll to force rendering of lazy-loaded buttons
   while ( pos < scrollHeight ) {
     await page.evaluate(
       `window.scrollTo(0, ${ pos })`
@@ -402,8 +545,9 @@ async function expandAllReplies(
       clicked += 1;
     } catch ( e ) {
       console.log(
-        'error catched by the try catch block', e
+        e 
       );
+      // Catch individual button failures silently to maintain the loop
     }
   }
 
@@ -414,6 +558,7 @@ async function expandAllReplies(
     4000
   );
 
+  // Check for secondary "Show more replies" buttons
   const CONT_BTN = 'ytd-continuation-item-renderer button';
   const contButtons = await page.$$(
     CONT_BTN
@@ -434,7 +579,7 @@ async function expandAllReplies(
         );
       } catch ( e ) {
         console.log(
-          'error catched by the try catch block', e
+          e
         );
       }
     }
@@ -450,25 +595,25 @@ async function expandAllReplies(
 }
 
 /**
- * Extracts all visible top-level comments and their nested replies from the DOM.
+ * Core scraping engine: extracts text and metadata from the loaded DOM and builds a structured object tree.
  *
- * **Logic**:
- * 1. Calls `expandAllReplies()` to ensure DOM nodes for nested comments exist.
- * 2. Uses `page.evaluate()` to run vanilla JavaScript inside the browser context:
- *    - Queries all `ytd-comment-thread-renderer` elements.
- *    - Iterates via classic `for` loops (to prevent Playwright serialization issues).
- *    - Extracts author name, comment text, publish time, and like count for the top-level comment.
- *    - Looks inside the `ytd-comment-replies-renderer` of that thread to parse out nested reply text.
- * 3. Returns the raw scraped array to the Node context.
- * 4. Passes the raw extracted objects through a `.map()` function in Node to format
- *    the keys and run `parseLikes()` on the strings.
+ * **Logic & Flow:**
+ * 1. Injects a vanilla JavaScript function directly into the browser context via `page.evaluate()`.
+ *    - Note: Classic `for` loops are used here instead of `.map()` or `.forEach()`. Playwright's serialization
+ *      pipeline can struggle with complex iterator callbacks when passing data across the Node/Browser boundary.
+ * 2. Parses the main comment node for Author, Text, Time, and Vote Count.
+ * 3. Scans for an attached `<ytd-comment-replies-renderer>` and extracts any child replies.
+ * 4. Passes this raw, flat dictionary array back to Node.js.
+ * 5. In Node, maps over the raw data to clean it up. Uses a regex (`/^@([^\s,:]+)/`) to detect "@mentions"
+ *    in replies, allowing it to artificially rebuild deeply nested conversational threads even though
+ *    YouTube renders them in a flat list visually.
  *
- * @param {Page} page - The active Playwright page instance.
- * @returns {Promise<CommentNode[]>} An array of structured comment objects containing text, metadata, and replies.
+ * @param {Page} page - The active Playwright page instance containing the hydrated comments.
+ * @returns {Promise<CommentNode[]>} An array of fully structured, nested comment objects.
  */
 async function extractComments(
   page: Page
-) {
+): Promise<CommentNode[]> {
   console.log(
     'Extracting data from DOM...'
   );
@@ -486,7 +631,7 @@ async function extractComments(
   let finalData: CommentNode[] = [];
 
   try {
-    // 1. Extract pure text strings from the DOM using a clean loop
+    // 1. Extract pure text strings from the DOM using a browser-context script
     const rawData = await page.evaluate(
       () => {
         const results = [];
@@ -494,7 +639,6 @@ async function extractComments(
           'ytd-comment-thread-renderer'
         );
 
-        // Using classic for-loops instead of .forEach/.map to avoid transpiler interference
         for ( let i = 0; i < threads.length; i++ ) {
           const thread = threads[ i ];
 
@@ -646,12 +790,11 @@ async function extractComments(
       }
     );
 
-    // 2. Process the raw strings in the Node environment
+    // 2. Process the raw strings in the Node environment (Typing, Parsers, and Nesting logic)
     finalData = rawData.map(
       (
         item
       ) => {
-        // Build nested structure for replies
         const nestedReplies: CommentNode[] = [];
         const previousNodes: CommentNode[] = [];
 
@@ -674,6 +817,7 @@ async function extractComments(
           );
           let placed = false;
 
+          // Mention resolution block: Attaches replies to the specific user they tagged
           if ( mentionMatch ) {
             const [
               , mentionedUser
@@ -692,7 +836,6 @@ async function extractComments(
               mentionedUser
             );
 
-            // Search backwards through previous replies to find the most recent matching author
             for ( let i = previousNodes.length - 1; i >= 0; i-- ) {
               const prevNode = previousNodes[ i ];
               const cleanAuthor = normalizeName(
@@ -753,141 +896,141 @@ async function extractComments(
   return finalData;
 }
 
+// ---------------------------------------------
+// File I/O Modules
+// ---------------------------------------------
+
 /**
- * The main orchestration function that drives the entire scraping process.
+ * Validates the existence of a local `logs` directory, creating it if absent.
+ * @returns {Promise<string>} The absolute path to the logs directory.
+ */
+async function ensureLogsDirectory(): Promise<string> {
+  const logsDir = path.join(
+    process.cwd(), 'logs'
+  );
+  await mkdir(
+    logsDir, {
+      recursive: true
+    }
+  );
+
+  return logsDir;
+}
+
+/**
+ * Writes the structured comment tree to disk as a JSON file.
+ * @param {CommentNode[]} data - The fully structured comment data.
+ * @param {string} filename - The absolute destination file path.
+ */
+async function saveDataAsJson(
+  data: CommentNode[], filename: string
+): Promise<void> {
+  await writeFile(
+    filename, JSON.stringify(
+      data, null, 2
+    ), 'utf-8'
+  );
+}
+
+/**
+ * Recursively unwraps nested reply threads into a flat, 1-dimensional array of strings.
+ * This is required because Excel rows are fundamentally flat and cannot easily represent deep nesting.
  *
- * **Flow & Logic**:
- * 1. Launches a persistent Playwright browser context using a predefined user data directory
- *    (to keep sessions/logins alive if needed).
- * 2. Injects a setup script (`addInitScript`) to hijack the History API (`pushState`, `replaceState`).
- *    This prevents YouTube's Single Page Application (SPA) architecture from navigating away
- *    from the target video page accidentally.
- * 3. Navigates to the provided `url`.
- * 4. Solves cookies/captchas (`handleCaptchaOrConsent`).
- * 5. Grabs the video title for file naming (`getVideoDetails`).
- * 6. Triggers lazy loading (`scrollToLoadComments`).
- * 7. Extracts the fully loaded payload (`extractComments`).
- * 8. Maps the JSON data into a flat format and exports it as both `.json` and an `.xlsx` workbook.
- * 9. Cleans up by closing the browser context.
+ * @param {CommentNode[]} replies - The array of child replies.
+ * @returns {string[]} A flat array of all reply text in the tree.
+ */
+function flattenReplies(
+  replies: CommentNode[]
+): string[] {
+  let list: string[] = [];
+
+  for ( const r of replies ) {
+    list.push(
+      r.comment
+    );
+
+    if ( r.replies && r.replies.length > 0 ) {
+      list = list.concat(
+        flattenReplies(
+          r.replies
+        )
+      );
+    }
+  }
+
+  return list;
+}
+
+/**
+ * Converts the nested comment object into a flat tabular format and saves it as an `.xlsx` file.
  *
- * @param {string} url - The complete URL of the YouTube video to scrape.
- * @param {boolean} [headless=false] - Whether to run the browser invisibly.
- * @param {number | null} [limit=null] - An optional cap on how many top-level comments to load.
- * @returns {Promise<void>} Resolves when the entire flow finishes and files are saved.
+ * @param {CommentNode[]} data - The structured comment tree.
+ * @param {string} filename - The absolute destination file path.
+ */
+function saveDataAsExcel(
+  data: CommentNode[], filename: string
+): void {
+  const excelData = data.map(
+    (
+      c
+    ) => {
+      return {
+        Author : c.author,
+        Comment: c.comment,
+        Time   : c.time,
+        Likes  : c.likes,
+        Replies: flattenReplies(
+          c.replies || []
+        ).join(
+          ' | '
+        ),
+      };
+    }
+  );
+
+  const worksheet = xlsx.utils.json_to_sheet(
+    excelData
+  );
+  const workbook = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(
+    workbook, worksheet, 'Comments'
+  );
+  xlsx.writeFile(
+    workbook, filename
+  );
+}
+
+// ---------------------------------------------
+// Core Orchestrator
+// ---------------------------------------------
+
+/**
+ * Master controller that orchestrates the discrete functional modules into a sequential execution pipeline.
+ *
+ * **Pipeline Flow:**
+ * 1. **Init:** Calls `setupBrowserContext` to boot Playwright.
+ * 2. **Navigation:** Validates the URL protocol and triggers Playwright to load the page.
+ * 3. **Bypass:** Triggers `handleCaptchaOrConsent` to clear the view.
+ * 4. **Meta Extraction:** Fetches the title via `getVideoDetails` for future I/O operations.
+ * 5. **Hydration:** Engages `scrollToLoadComments` to fetch the raw DOM nodes.
+ * 6. **Scraping:** Triggers `extractComments` (which internally calls `expandAllReplies`) to parse the DOM.
+ * 7. **I/O Storage:** Validates directories and triggers `saveDataAsJson` and `saveDataAsExcel`.
+ * 8. **Teardown:** Safely destroys the browser context.
+ *
+ * @param {string} url - The target YouTube video URL.
+ * @param {boolean} [headless=false] - Execution mode (visible vs invisible).
+ * @param {number | null} [limit=null] - Maximum threads to parse.
+ * @returns {Promise<void>} Resolves when the entire pipeline is complete and the context is closed.
  */
 async function runScraper(
   url: string, headless: boolean = false, limit: number | null = null
 ): Promise<void> {
-  console.log(
-    `Launching browser (headless=${ headless })...`
-  );
 
-
-  // 1. Pass the viewport details directly into launchPersistentContext
-  const context = await chromium.launchPersistentContext(
-    userDataDir, {
-      headless,
-      channel : 'chrome',
-      viewport: {
-        width : 1280,
-        height: 720
-      }
-    }
-  );
-
-  // 2. Grab the default page that opens with launchPersistentContext
-  const page = context.pages().length > 0
-    ? context.pages()[ 0 ]
-    : await context.newPage();
-
-  // Inject script to prevent YouTube SPA routing from messing up the current page context
-  await context.addInitScript(
-    () => {
-      const originalPushState = history.pushState;
-
-      history.pushState = function (
-        ...args
-      ) {
-        const [
-          ,, url
-        ] = args;
-
-        if ( url && !String(
-          url
-        ).includes(
-          'watch?v='
-        ) ) {
-          console.log(
-            'Blocked SPA navigation to:', url
-          );
-
-          return;
-        }
-
-        originalPushState.apply(
-          this, args
-        );
-      };
-
-      const originalReplaceState = history.replaceState;
-
-      history.replaceState = function (
-        ...args
-      ) {
-        const [
-          ,, url
-        ] = args;
-
-        if ( url && !String(
-          url
-        ).includes(
-          'watch?v='
-        ) ) {
-          console.log(
-            'Blocked SPA replace to:', url
-          );
-
-          return;
-        }
-
-        originalReplaceState.apply(
-          this, args
-        );
-      };
-
-      window.addEventListener(
-        'click', (
-          e: Event
-        ) => {
-          const target = e.target as HTMLElement;
-          const link = target.closest(
-            'a'
-          );
-
-          if ( link && link.href ) {
-            try {
-              const urlObj = new URL(
-                link.href, window.location.href
-              );
-
-              if ( !urlObj.pathname.startsWith(
-                '/watch'
-              ) ) {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log(
-                  'Blocked click navigation to:', link.href
-                );
-              }
-            } catch ( err ) {
-              console.log(
-                'error catched by the try catch block', err
-              );
-            }
-          }
-        }, true
-      );
-    }
+  // 1. Setup Browser
+  const {
+    context, page
+  } = await setupBrowserContext(
+    headless
   );
 
   if ( !url.startsWith(
@@ -914,13 +1057,14 @@ async function runScraper(
     );
   } catch ( e ) {
     console.log(
-      `Error: ${ e }`
+      `Error navigating to URL: ${ e }`
     );
     await context.close();
 
     return;
   }
 
+  // 2. Handle Consent and Extract Data
   await handleCaptchaOrConsent(
     page
   );
@@ -946,88 +1090,29 @@ async function runScraper(
     page
   );
 
+  // 3. Handle File Saving
   if ( commentsData && commentsData.length > 0 ) {
     const baseFilename = sanitizeFilename(
       videoTitle
     );
+    const logsDir = await ensureLogsDirectory();
 
-    // Create the logs directory if it doesn't exist
-    const logsDir = path.join(
-      process.cwd(), 'logs'
-    );
-    await mkdir(
-      logsDir, {
-        recursive: true
-      }
-    );
-
-    // Prepend the logs directory to the filenames
     const excelFilename = path.join(
-      logsDir, baseFilename + '.xlsx'
+      logsDir, `${ baseFilename }.xlsx`
     );
     const jsonFilename = path.join(
-      logsDir, baseFilename + '.json'
+      logsDir, `${ baseFilename }.json`
     );
 
     console.log(
       `Saving to ${ excelFilename } and ${ jsonFilename }...`
     );
 
-    await writeFile(
-      jsonFilename, JSON.stringify(
-        commentsData, null, 2
-      ), 'utf-8'
+    await saveDataAsJson(
+      commentsData, jsonFilename
     );
-
-    const excelData = commentsData.map(
-      (
-        c
-      ) => {
-        const flattenReplies = (
-          replies: CommentNode[]
-        ): string[] => {
-          let list: string[] = [];
-
-          for ( const r of replies ) {
-            list.push(
-              r.comment
-            );
-
-            if ( r.replies && r.replies.length > 0 ) {
-              list = list.concat(
-                flattenReplies(
-                  r.replies
-                )
-              );
-            }
-          }
-
-          return list;
-        };
-
-        return {
-          Author : c.author,
-          Comment: c.comment,
-          Time   : c.time,
-          Likes  : c.likes,
-          Replies: flattenReplies(
-            c.replies || []
-          ).join(
-            ' | '
-          ),
-        };
-      }
-    );
-
-    const worksheet = xlsx.utils.json_to_sheet(
-      excelData
-    );
-    const workbook = xlsx.utils.book_new();
-    xlsx.utils.book_append_sheet(
-      workbook, worksheet, 'Comments'
-    );
-    xlsx.writeFile(
-      workbook, excelFilename
+    saveDataAsExcel(
+      commentsData, excelFilename
     );
 
     console.log(
@@ -1039,7 +1124,7 @@ async function runScraper(
     );
   }
 
-  // 3. Change browser.close() to context.close()
+  // 4. Teardown
   await context.close();
 }
 
