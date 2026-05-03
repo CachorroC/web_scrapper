@@ -458,7 +458,7 @@ async function extractComments(
     comment: string;
     time   : string;
     likes  : number;
-    replies: { comment: string; replies: any[] }[];
+    replies: [];
   }[] = [];
 
   try {
