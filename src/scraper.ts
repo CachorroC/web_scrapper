@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { chromium } from 'playwright-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import * as xlsx from 'xlsx';
@@ -5,7 +6,8 @@ import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import type { Page } from 'playwright';
 import delay from './utils/delay.js';
-import { writeFile } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
+import * as path from 'node:path';
 import { CommentNode } from './types/yt-comment.js';
 import { parseLikes } from './utils/parse_likes.js';
 import { sanitizeFilename } from './utils/sanitize_filename.js';
@@ -288,6 +290,7 @@ async function scrollToLoadComments(
 
     if ( count === lastCommentCount ) {
       noCommentChangeCount += 1;
+
       if ( noCommentChangeCount >= 5 ) {
         break; // Stop if no new comments load after 5 attempts
       }
@@ -512,7 +515,7 @@ async function extractComments(
             '#author-text'
           );
           const author = authorEl
-            ? ( authorEl as HTMLElement ).innerTe#xt
+            ? ( authorEl as HTMLElement ).innerText
             : 'Anonymous';
 
           const textEl = mainComment.querySelector(
@@ -552,17 +555,29 @@ async function extractComments(
                 const contentEl = el.querySelector(
                   '#content-text'
                 );
-                const authorEl = el.querySelector('#author-text');
-                const timeEl = el.querySelector('yt-formatted-string.published-time-text');
-                const likesEl = el.querySelector('#vote-count-middle');
+                const authorEl = el.querySelector(
+                  '#author-text'
+                );
+                const timeEl = el.querySelector(
+                  'yt-formatted-string.published-time-text'
+                );
+                const likesEl = el.querySelector(
+                  '#vote-count-middle'
+                );
 
                 if ( contentEl && ( contentEl as HTMLElement ).innerText ) {
                   replies.push(
                     {
-                      Author: authorEl ? (authorEl as HTMLElement).innerText.trim() : 'Anonymous',
+                      Author: authorEl
+                        ? ( authorEl as HTMLElement ).innerText.trim()
+                        : 'Anonymous',
                       Comment: ( contentEl as HTMLElement ).innerText.trim(),
-                      Time: timeEl ? (timeEl as HTMLElement).innerText.trim() : 'Unknown',
-                      LikesText: likesEl ? (likesEl as HTMLElement).innerText.trim() : '0',
+                      Time   : timeEl
+                        ? ( timeEl as HTMLElement ).innerText.trim()
+                        : 'Unknown',
+                      LikesText: likesEl
+                        ? ( likesEl as HTMLElement ).innerText.trim()
+                        : '0',
                       Replies: []
                     }
                   );
@@ -578,17 +593,29 @@ async function extractComments(
                 const contentEl = el.querySelector(
                   '#content-text'
                 );
-                const authorEl = el.querySelector('#author-text');
-                const timeEl = el.querySelector('yt-formatted-string.published-time-text');
-                const likesEl = el.querySelector('#vote-count-middle');
+                const authorEl = el.querySelector(
+                  '#author-text'
+                );
+                const timeEl = el.querySelector(
+                  'yt-formatted-string.published-time-text'
+                );
+                const likesEl = el.querySelector(
+                  '#vote-count-middle'
+                );
 
                 if ( contentEl && ( contentEl as HTMLElement ).innerText ) {
                   replies.push(
                     {
-                      Author: authorEl ? (authorEl as HTMLElement).innerText.trim() : 'Anonymous',
+                      Author: authorEl
+                        ? ( authorEl as HTMLElement ).innerText.trim()
+                        : 'Anonymous',
                       Comment: ( contentEl as HTMLElement ).innerText.trim(),
-                      Time: timeEl ? (timeEl as HTMLElement).innerText.trim() : 'Unknown',
-                      LikesText: likesEl ? (likesEl as HTMLElement).innerText.trim() : '0',
+                      Time   : timeEl
+                        ? ( timeEl as HTMLElement ).innerText.trim()
+                        : 'Unknown',
+                      LikesText: likesEl
+                        ? ( likesEl as HTMLElement ).innerText.trim()
+                        : '0',
                       Replies: []
                     }
                   );
@@ -627,44 +654,72 @@ async function extractComments(
         const nestedReplies: CommentNode[] = [];
         const authorMap = new Map<string, CommentNode>();
 
-        for (const rawReply of item.Replies) {
+        for ( const rawReply of item.Replies ) {
           const replyNode: CommentNode = {
             author : rawReply.Author || 'Anonymous',
             comment: rawReply.Comment || rawReply.comment || '',
             time   : rawReply.Time || 'Unknown',
-            likes  : parseLikes(rawReply.LikesText || '0'),
+            likes  : parseLikes(
+              rawReply.LikesText || '0'
+            ),
             replies: []
           };
 
-          const mentionMatch = replyNode.comment.match(/^@([^\\s,:]+)/);
+          const mentionMatch = replyNode.comment.match(
+            /^@([^\s,:]+)/
+          );
           let placed = false;
 
-          if (mentionMatch) {
-            const mentionedUser = mentionMatch[1];
+          if ( mentionMatch ) {
+            const [
+              , mentionedUser
+            ] = mentionMatch;
             let parentNode: CommentNode | undefined;
 
             // Convert maps values to array and reverse to find the most recent matching author
-            const authors = Array.from(authorMap.entries()).reverse();
-            for (const [authorName, authorNode] of authors) {
-              const cleanAuthor = authorName.replace(/^@/, '');
-              const cleanMention = mentionedUser.replace(/^@/, '');
-              if (cleanAuthor === cleanMention || cleanAuthor.includes(cleanMention) || cleanMention.includes(cleanAuthor)) {
+            const authors = Array.from(
+              authorMap.entries()
+            ).reverse();
+
+            for ( const [
+              authorName,
+              authorNode
+            ] of authors ) {
+              const cleanAuthor = authorName.replace(
+                /^@/, ''
+              );
+              const cleanMention = mentionedUser.replace(
+                /^@/, ''
+              );
+
+              if ( cleanAuthor === cleanMention || cleanAuthor.includes(
+                cleanMention
+              ) || cleanMention.includes(
+                cleanAuthor
+              ) ) {
                 parentNode = authorNode;
+
                 break;
               }
             }
 
-            if (parentNode) {
-              parentNode.replies!.push(replyNode);
+            if ( parentNode ) {
+              parentNode.replies!.push(
+                replyNode
+              );
               placed = true;
             }
           }
 
-          if (!placed) {
-            nestedReplies.push(replyNode);
+          if ( !placed ) {
+            nestedReplies.push(
+              replyNode
+            );
           }
 
-          authorMap.set(replyNode.author, replyNode);
+          authorMap.set(
+            replyNode.author, replyNode
+          );
         }
 
         return {
@@ -888,8 +943,24 @@ async function runScraper(
     const baseFilename = sanitizeFilename(
       videoTitle
     );
-    const excelFilename = baseFilename + '.xlsx';
-    const jsonFilename = baseFilename + '.json';
+
+    // Create the logs directory if it doesn't exist
+    const logsDir = path.join(
+      process.cwd(), 'logs' 
+    );
+    await mkdir(
+      logsDir, {
+        recursive: true 
+      } 
+    );
+
+    // Prepend the logs directory to the filenames
+    const excelFilename = path.join(
+      logsDir, baseFilename + '.xlsx' 
+    );
+    const jsonFilename = path.join(
+      logsDir, baseFilename + '.json' 
+    );
 
     console.log(
       `Saving to ${ excelFilename } and ${ jsonFilename }...`
@@ -905,14 +976,25 @@ async function runScraper(
       (
         c
       ) => {
-        const flattenReplies = (replies: CommentNode[]): string[] => {
+        const flattenReplies = (
+          replies: CommentNode[]
+        ): string[] => {
           let list: string[] = [];
-          for (const r of replies) {
-            list.push(r.comment);
-            if (r.replies && r.replies.length > 0) {
-              list = list.concat(flattenReplies(r.replies));
+
+          for ( const r of replies ) {
+            list.push(
+              r.comment
+            );
+
+            if ( r.replies && r.replies.length > 0 ) {
+              list = list.concat(
+                flattenReplies(
+                  r.replies
+                )
+              );
             }
           }
+
           return list;
         };
 
@@ -921,7 +1003,9 @@ async function runScraper(
           Comment: c.comment,
           Time   : c.time,
           Likes  : c.likes,
-          Replies: flattenReplies(c.replies || []).join(
+          Replies: flattenReplies(
+            c.replies || []
+          ).join(
             ' | '
           ),
         };
