@@ -512,7 +512,7 @@ async function extractComments(
             '#author-text'
           );
           const author = authorEl
-            ? ( authorEl as HTMLElement ).innerText
+            ? ( authorEl as HTMLElement ).innerTe#xt
             : 'Anonymous';
 
           const textEl = mainComment.querySelector(
@@ -642,7 +642,7 @@ async function extractComments(
           if (mentionMatch) {
             const mentionedUser = mentionMatch[1];
             let parentNode: CommentNode | undefined;
-            
+
             // Convert maps values to array and reverse to find the most recent matching author
             const authors = Array.from(authorMap.entries()).reverse();
             for (const [authorName, authorNode] of authors) {
