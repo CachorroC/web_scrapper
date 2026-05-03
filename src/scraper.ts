@@ -526,7 +526,7 @@ async function extractComments(
             : '';
 
           const timeEl = mainComment.querySelector(
-            'yt-formatted-string.published-time-text'
+            '#published-time-text'
           );
           const time = timeEl
             ? ( timeEl as HTMLElement ).innerText
@@ -559,7 +559,7 @@ async function extractComments(
                   '#author-text'
                 );
                 const timeEl = el.querySelector(
-                  'yt-formatted-string.published-time-text'
+                  '#published-time-text'
                 );
                 const likesEl = el.querySelector(
                   '#vote-count-middle'
@@ -597,7 +597,7 @@ async function extractComments(
                   '#author-text'
                 );
                 const timeEl = el.querySelector(
-                  'yt-formatted-string.published-time-text'
+                  '#published-time-text'
                 );
                 const likesEl = el.querySelector(
                   '#vote-count-middle'
@@ -946,20 +946,20 @@ async function runScraper(
 
     // Create the logs directory if it doesn't exist
     const logsDir = path.join(
-      process.cwd(), 'logs' 
+      process.cwd(), 'logs'
     );
     await mkdir(
       logsDir, {
-        recursive: true 
-      } 
+        recursive: true
+      }
     );
 
     // Prepend the logs directory to the filenames
     const excelFilename = path.join(
-      logsDir, baseFilename + '.xlsx' 
+      logsDir, baseFilename + '.xlsx'
     );
     const jsonFilename = path.join(
-      logsDir, baseFilename + '.json' 
+      logsDir, baseFilename + '.json'
     );
 
     console.log(
