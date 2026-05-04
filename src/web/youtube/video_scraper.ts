@@ -545,7 +545,7 @@ async function expandAllReplies(
       clicked += 1;
     } catch ( e ) {
       console.log(
-        e 
+        e
       );
       // Catch individual button failures silently to maintain the loop
     }
@@ -1158,8 +1158,12 @@ if ( args[ 1 ] && !isNaN(
   limitArg = parseInt(
     args[ 1 ], 10
   );
+
 }
 
+console.log(
+  limitArg
+);
 const isHeadless = args.includes(
   '--headless'
 );
