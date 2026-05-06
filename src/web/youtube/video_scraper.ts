@@ -360,7 +360,7 @@ async function scrollToLoadComments(
     }
   );
   await delay(
-    3000
+    5000
   );
 
   try {
@@ -407,7 +407,7 @@ async function scrollToLoadComments(
       }
     );
     await delay(
-      2500
+      5000
     );
 
     const newHeight = await page.evaluate(
@@ -917,6 +917,25 @@ async function ensureLogsDirectory(): Promise<string> {
   return logsDir;
 }
 
+
+
+async function ensureFilenameDirectory(
+  socialMediaName: string,
+  fileName: string
+): Promise<string> {
+  const fileNameDir = path.join(
+    process.cwd(), 'etnografia_digital', socialMediaName, fileName
+
+  );
+  await mkdir(
+    fileNameDir, {
+      recursive: true
+    }
+  );
+
+  return fileNameDir;
+}
+
 /**
  * Writes the structured comment tree to disk as a JSON file.
  * @param {CommentNode[]} data - The fully structured comment data.
@@ -1095,13 +1114,17 @@ async function runScraper(
     const baseFilename = sanitizeFilename(
       videoTitle
     );
-    const logsDir = await ensureLogsDirectory();
+
+    const fileNameDir = await ensureFilenameDirectory(
+      'youtube',
+      baseFilename
+    );
 
     const excelFilename = path.join(
-      logsDir, `${ baseFilename }.xlsx`
+      fileNameDir, `${ baseFilename }.xlsx`
     );
     const jsonFilename = path.join(
-      logsDir, `${ baseFilename }.json`
+      fileNameDir, `${ baseFilename }.json`
     );
 
     console.log(
